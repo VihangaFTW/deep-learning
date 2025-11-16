@@ -19,6 +19,4 @@ class Node:
     
 
 if __name__ ==  "__main__":
-    a = Node(2.0, label="a")
-    b = Node(3.0, label="b")
-    print(a*b)
+    pass

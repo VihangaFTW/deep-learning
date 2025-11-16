@@ -70,7 +70,7 @@ def draw_graph(root: Node) -> Digraph:
         if node._op:
             op_node_id = node_id + node._op
             graph.node(name=op_node_id, label=node._op)
-            graph.edge(node_id, op_node_id)
+            graph.edge(op_node_id, node_id)
             
     # Create edges between nodes.
     for child_node, parent_node in edges:
