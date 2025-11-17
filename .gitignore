@@ -68,3 +68,6 @@ tensorboard/
 # OS
 Thumbs.db
 
+# python linter configs
+pyrightconfig.json
+

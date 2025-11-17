@@ -2,6 +2,54 @@ from graphviz import Digraph
 from node import Node
 
 
+def topological_sort(root: Node) -> list[Node]:
+    """
+    Performs a topological sort of the computational graph using depth-first search.
+
+    Traverses the graph starting from the root node and builds a topological ordering
+    where each node appears before its parent nodes. This ordering is useful for
+    backward propagation, ensuring gradients are computed in the correct order
+    (from output to inputs).
+
+    The algorithm uses a recursive DFS approach: for each node, it first recursively
+    processes all child nodes, then appends the current node to the ordering.
+    This ensures children appear before parents in the final ordering.
+
+    Args:
+        root: The root node of the computational graph to sort.
+
+    Returns:
+        A list of nodes in topological order, where each node appears before
+        its parent nodes. This ordering ensures that when traversing the list
+        in reverse, gradients can be computed correctly during backward propagation.
+    """
+    topo_ordering: list[Node] = []
+
+    # set for O(1) membership lookup
+    visited: set[Node] = set()
+
+    def build_topo(parent_node: Node):
+        """
+        Recursively builds the topological ordering using DFS.
+
+        Visits each node once, recursively processes all child nodes first,
+        then appends the current node to the ordering. This ensures a valid
+        topological order where dependencies (children) come before dependents (parents).
+        """
+
+        if parent_node not in visited:
+            visited.add(parent_node)
+            # Process all children first to ensure they appear before the parent.
+            for child_node in parent_node._prev:
+                build_topo(child_node)
+            # Append parent after all children have been processed.
+            topo_ordering.append(parent_node)
+
+    build_topo(root)
+
+    return topo_ordering
+
+
 def collect_nodes_and_edges(root: Node) -> tuple[set[Node], set[tuple[Node, Node]]]:
     """
     Traverses the computational graph starting from the root node.
