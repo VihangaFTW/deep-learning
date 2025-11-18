@@ -1,10 +1,11 @@
 [project]
 name = "micrograd"
 version = "0.1.0"
-description = "Add your description here"
+description = "basic neural network model"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "graphviz>=0.21",
     "pre-commit>=4.4.0",
 ]
+

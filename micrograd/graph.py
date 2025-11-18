@@ -1,5 +1,5 @@
 from graphviz import Digraph
-from node import Node
+from micrograd.node import Node
 
 
 def collect_nodes_and_edges(root: Node) -> tuple[set[Node], set[tuple[Node, Node]]]:
@@ -40,9 +40,9 @@ def collect_nodes_and_edges(root: Node) -> tuple[set[Node], set[tuple[Node, Node
     return nodes, edges
 
 
-def draw_graph(root: Node) -> Digraph:
+def make_graph(root: Node) -> Digraph:
     """
-    Visualizes the computational graph using Graphviz.
+    Construct the computational graph using Graphviz.
 
     Creates a directed graph visualization showing all nodes and edges
     in the computational graph starting from the root node.
