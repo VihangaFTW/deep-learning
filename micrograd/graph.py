@@ -1,8 +1,18 @@
+from __future__ import annotations
+
 from graphviz import Digraph
+from typing import TypeVar
+
 from micrograd.node import Node
 
+# Type variable bound to Node to accept any Node instance (including Self@Node).
+# This is needed to work around type checker limitations with Self@Node types.
+_NodeType = TypeVar("_NodeType", bound=Node)  # type: ignore[type-arg]
 
-def collect_nodes_and_edges(root: Node) -> tuple[set[Node], set[tuple[Node, Node]]]:
+
+def collect_nodes_and_edges(
+    root: _NodeType,  # type: ignore[misc]
+) -> tuple[set[Node], set[tuple[Node, Node]]]:
     """
     Traverses the computational graph starting from the root node.
 
@@ -40,7 +50,7 @@ def collect_nodes_and_edges(root: Node) -> tuple[set[Node], set[tuple[Node, Node
     return nodes, edges
 
 
-def make_graph(root: Node) -> Digraph:
+def make_graph(root: _NodeType) -> Digraph:  # type: ignore[misc]
     """
     Construct the computational graph using Graphviz.
 

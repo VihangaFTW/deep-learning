@@ -349,13 +349,13 @@ class Node:
         # Optionally visualize the graph before backpropagation.
         if visualize:
             try:
-                from graph import draw_graph
+                from micrograd.graph import make_graph
 
                 # Create outputs directory if it doesn't exist.
                 output_dir = Path("outputs")
                 output_dir.mkdir(exist_ok=True)
 
-                graph = draw_graph(self)
+                graph = make_graph(self)
                 graph.render(output_dir / "graph-before-backprop", view=True)
             except ImportError:
                 print("Warning: graphviz not available, skipping visualization.")
@@ -384,13 +384,13 @@ class Node:
         # Optionally visualize the graph after backpropagation.
         if visualize:
             try:
-                from graph import draw_graph
+                from micrograd.graph import make_graph
 
                 # Create outputs directory if it doesn't exist.
                 output_dir = Path("outputs")
                 output_dir.mkdir(exist_ok=True)
 
-                graph = draw_graph(self)
+                graph = make_graph(self)
                 graph.render(output_dir / "graph-after-backprop", view=True)
             except ImportError:
                 print("Warning: graphviz not available, skipping visualization.")
