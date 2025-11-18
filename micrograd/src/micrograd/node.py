@@ -50,7 +50,7 @@ class Node:
         Returns:
             A string showing the node's data value.
         """
-        return f"Value(data={self.data})"
+        return f"Node(data={self.data})"
 
     def __add__(self, other: Node | float) -> Node:
         """
@@ -81,6 +81,21 @@ class Node:
         res._backward = _backward
 
         return res
+
+    def __radd__(self, other: Node | float) -> Node:
+        """
+        Overload the right addition operator to handle number + Node cases.
+
+        Enables addition when a number appears on the left side of a Node
+        (e.g., 2 + node). Delegates to __add__ to handle the actual computation.
+
+        Args:
+            other: The number or Node to add to this node.
+
+        Returns:
+            A new Node representing the sum of other and self.
+        """
+        return self + other
 
     def __rmul__(self, other: Node | float) -> Node:
         """
@@ -227,6 +242,23 @@ class Node:
             A new Node representing self minus other.
         """
         return self + (-other)
+
+    def __rsub__(self, other: Node | float) -> Node:
+        """
+        Overload the right subtraction operator to handle number - Node cases.
+
+        Enables subtraction when a number appears on the left side of a Node
+        (e.g., 5 - node). Computes other - self using addition with negation:
+        other - self = (-self) + other. The __add__ method handles converting
+        other to a Node if it's a float.
+
+        Args:
+            other: The number or Node to subtract from.
+
+        Returns:
+            A new Node representing other minus self.
+        """
+        return (-self) + other
 
     def tanh(self, exp: bool = False) -> Node:
         """

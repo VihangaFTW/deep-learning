@@ -1,4 +1,4 @@
-from node import Node
+from micrograd.node import Node
 
 
 def main() -> None:

@@ -2,6 +2,11 @@ import torch
 
 
 def micrograd_example():
+    """PyTorch example demonstrating the same computation as micrograd.
+
+    This example performs the same forward and backward pass as the micrograd
+    implementation, but using PyTorch's automatic differentiation system.
+    """
     input1 = torch.Tensor([2.0]).double()
     input1.requires_grad = True
 

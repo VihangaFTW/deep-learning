@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "micrograd"
 version = "0.1.0"
@@ -7,5 +11,9 @@ requires-python = ">=3.14"
 dependencies = [
     "graphviz>=0.21",
     "pre-commit>=4.4.0",
+    "numpy>=2.3.5",
+    "torch>=2.0.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
