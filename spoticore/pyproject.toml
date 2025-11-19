@@ -1,0 +1,15 @@
+[project]
+name = "spoticore"
+version = "0.1.0"
+description = "character-level llm trained on 57,650 lyric samples from spotify"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.5",
+    "torch>=2.9.1",
+]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
