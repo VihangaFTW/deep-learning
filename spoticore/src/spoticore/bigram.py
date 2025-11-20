@@ -151,7 +151,7 @@ def plot_bigram_heatmap(
     plt.show()
 
 
-def sampling(N: torch.Tensor, itos: dict[int, str]) -> list[str]:
+def sampling(N: torch.Tensor, itos: dict[int, str]) -> None:
     """
     Generate text samples using bigram probability distributions.
 
@@ -164,7 +164,7 @@ def sampling(N: torch.Tensor, itos: dict[int, str]) -> list[str]:
         itos: Index-to-string mapping dictionary.
 
     Returns:
-        List of characters from the last generated sample sequence.
+        None
     """
     # Initialize random number generator with fixed seed for reproducibility.
     generator = torch.Generator().manual_seed(SAMPLE_SEED)
@@ -204,7 +204,50 @@ def sampling(N: torch.Tensor, itos: dict[int, str]) -> list[str]:
 
         print(f"\nIteration {i}:\n", "".join(outputs))
 
-    return outputs
+
+def calculate_nll(N: torch.Tensor, lyrics: list[str], stoi: dict[str, int]) -> float:
+    """
+    Calculate the negative log likelihood of lyrics under the bigram model.
+
+    Computes the average negative log likelihood per character using smoothed
+    bigram probabilities. Applies add-one smoothing to avoid zero probabilities.
+
+    Args:
+        N: 2D tensor of bigram frequency counts (vocab_size x vocab_size).
+        lyrics: List of lyrics strings to evaluate.
+        stoi: String-to-index mapping dictionary.
+
+    Returns:
+        Average negative log likelihood per character.
+    """
+    # Apply smoothing to avoid zero probabilities that would cause log(0) = -inf.
+    P = (N + 1).float()
+    # Normalize each row to convert counts into probabilities.
+    P /= P.sum(1, keepdim=True)
+
+    # Convert to log probabilities for numerical stability.
+    log_P = torch.log(P)
+
+    # Convert all lyrics to indices using the existing function.
+    indices_tensor = lyrics_to_indices(
+        lyrics, stoi, progress_interval=len(lyrics) + 1
+    ).long()
+
+    # Create bigram pairs using slicing.
+    first_chars = indices_tensor[:-1]
+    second_chars = indices_tensor[1:]
+
+    # Get all log probabilities at once.
+    # * If first_chars = [0, 5, 12] and second_chars = [5, 12, 3]
+    # * Then log_probs = [log_P[0, 5], log_P[5, 12], log_P[12, 3]]
+    log_probs = log_P[first_chars, second_chars]
+
+    # Sum all log probabilities and compute average negative log likelihood.
+    log_likelihood = log_probs.sum().item()
+    char_count = len(first_chars)
+
+    # Return negative log likelihood averaged over all characters.
+    return -log_likelihood / char_count if char_count > 0 else float("inf")
 
 
 def main() -> None:
@@ -228,9 +271,12 @@ def main() -> None:
     # Visualize.
     # plot_bigram_heatmap(N, itos, vocab_size)
 
-    choices = sampling(N, itos)
+    sampling(N, itos)
 
-    print(f"{choices=}")
+    # calculate how well the model predicts a given lyric
+
+    nll = calculate_nll(N, lyrics, stoi)
+    print(f"{nll=}")
 
 
 if __name__ == "__main__":
