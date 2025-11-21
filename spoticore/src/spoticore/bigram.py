@@ -237,7 +237,7 @@ def calculate_nll(N: torch.Tensor, lyrics: list[str], stoi: dict[str, int]) -> f
     first_chars = indices_tensor[:-1]
     second_chars = indices_tensor[1:]
 
-    # Get all log probabilities at once.
+    # Get all log probabilities at once via vector based indexing.
     # * If first_chars = [0, 5, 12] and second_chars = [5, 12, 3]
     # * Then log_probs = [log_P[0, 5], log_P[5, 12], log_P[12, 3]]
     log_probs = log_P[first_chars, second_chars]

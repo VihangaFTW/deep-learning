@@ -1,12 +1,14 @@
 # Deep Learning
 
-A collection of deep learning starter projects.
+A collection of deep learning starter projects exploring fundamental concepts from scratch because I got bored with gpt wrappers.
+
+Each project includes explicit credits and acknowledgments.
 
 ## Projects
 
 ### [micrograd](./micrograd/)
 
-A minimal autograd engine and neural network library implemented from scratch in Python. This project is based on [Andrej Karpathy's micrograd](https://github.com/karpathy/micrograd) and demonstrates the fundamentals of automatic differentiation and backpropagation by building a simple neural network framework.
+A minimal autograd engine and neural network library implemented from scratch in Python. This project serves as my first hands-on experience with deep learning neural networks.
 
 **Features:**
 
@@ -28,6 +30,7 @@ See the [micrograd README](./micrograd/README.md) for detailed documentation.
 Each project directory contains its own `pyproject.toml` and can be set up independently:
 
 ```bash
+cd to-directory
 uv sync
 uv run ...
 ```
