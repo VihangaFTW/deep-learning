@@ -381,7 +381,7 @@ class Node:
         # Optionally visualize the graph before backpropagation.
         if visualize:
             try:
-                from micrograd.graph import make_graph
+                from autodiff.graph import make_graph
 
                 # Create outputs directory if it doesn't exist.
                 output_dir = Path("outputs")
@@ -416,7 +416,7 @@ class Node:
         # Optionally visualize the graph after backpropagation.
         if visualize:
             try:
-                from micrograd.graph import make_graph
+                from autodiff.graph import make_graph
 
                 # Create outputs directory if it doesn't exist.
                 output_dir = Path("outputs")

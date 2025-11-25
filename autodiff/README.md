@@ -1,10 +1,10 @@
-# Micrograd
+# Autodiff
 
-A minimal autograd engine and neural network library implemented from scratch in Python. This project demonstrates the fundamentals of automatic differentiation, backpropagation, and neural network training by building a simple but complete deep learning framework.
+A minimal autograd engine and neural network library implemented from scratch in Python. This project demonstrates the fundamentals of automatic differentiation, backpropagation, and neural network training by building a simple but complete deep learning framework. Autodiff is inspired by PyTorch's own autograd engine.
 
 ## Overview
 
-Micrograd is an educational implementation based on [Andrej Karpathy's micrograd](https://github.com/karpathy/micrograd). It captures the core concepts with some modifications and enhancements while not being a direct copy or as feature rich as the original. Key features include:
+Autodiff is an educational implementation based on [Andrej Karpathy's micrograd](https://github.com/karpathy/micrograd). It captures the core concepts with some modifications and enhancements while not being a direct copy or as feature rich as the original. Key features include:
 
 - **Automatic Differentiation**: Build computational graphs and compute gradients automatically
 - **Neural Network Components**: Ready-to-use Neuron, Layer, and MLP classes
@@ -16,7 +16,7 @@ Micrograd is an educational implementation based on [Andrej Karpathy's micrograd
 ### Core Components
 
 - **`Node`**: The fundamental building block that represents a value in a computational graph with automatic gradient computation
-- **`Neuron`**: A single neuron with weights, bias, and tanh activation
+- **`Neuron`**: A `Node` wrapper that mimics a single neuron with weights, bias, and tanh activation
 - **`Layer`**: A layer of neurons that processes inputs
 - **`MLP`**: Multi-Layer Perceptron for building feedforward neural networks
 
@@ -39,7 +39,7 @@ uv sync
 
 # Run examples
 uv run python main.py
-uv run python -m micrograd.neuron
+uv run python -m autodiff.neuron
 ```
 
 ## Quick Start
@@ -47,7 +47,7 @@ uv run python -m micrograd.neuron
 ### Basic Usage
 
 ```python
-from micrograd.node import Node
+from autodiff.node import Node
 
 # Create input nodes
 x1 = Node(2.0, label="x1")
@@ -69,8 +69,8 @@ o.backpropagate(visualize=True)  # visualize=True generates graphviz diagrams
 ### Building a Neural Network
 
 ```python
-from micrograd.node import Node
-from micrograd.neuron import MLP
+from autodiff.node import Node
+from autodiff.neuron import MLP
 
 # Create input data
 inputs = [
@@ -115,25 +115,25 @@ This example:
 The `neuron.py` module includes a complete training example:
 
 ```bash
-uv run python -m micrograd.neuron
+uv run python -m autodiff.neuron
 ```
 
 This trains an MLP on a small dataset using gradient descent.
 
 ### PyTorch Comparison
 
-Compare micrograd with PyTorch's autograd system:
+Compare autodiff with PyTorch's autograd system:
 
 ```bash
-uv run python -m micrograd.pytorch_example
+uv run python -m autodiff.pytorch_example
 ```
 
 ## Project Structure
 
 ```
-micrograd/
+autodiff/
 ├── src/
-│   └── micrograd/
+│   └── autodiff/
 │       ├── __init__.py
 │       ├── node.py          # Core Node class with autograd
 │       ├── graph.py          # Graph visualization utilities
@@ -155,7 +155,7 @@ micrograd/
 
 ### Automatic Differentiation
 
-Micrograd uses reverse-mode automatic differentiation (backpropagation):
+Autodiff uses reverse-mode automatic differentiation (backpropagation):
 
 1. **Forward Pass**: Operations build a computational graph where each `Node` stores its value and references to its input nodes
 2. **Backward Pass**: Starting from the output node, gradients are propagated backward through the graph using the chain rule
@@ -173,7 +173,4 @@ Each operation creates a new `Node` that:
 
 Special thanks to Andrej Karpathy for creating the original micrograd project and making it available as an educational resource.
 
-## License
-
-Educational project - feel free to use and modify for learning purposes :)
 

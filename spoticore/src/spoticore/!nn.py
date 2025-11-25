@@ -1,11 +1,14 @@
-from bigram import lyrics_to_indices, build_vocab_from_lyrics, SAMPLE_SEED
+from bigram import lyrics_to_indices, build_vocab_from_lyrics
 from reader import read_all_lyrics
 import torch
 import torch.nn as nn
 
-EMBEDDING_DIM = 10
-LEARNING_RATE = 4.1
-REGULARIZATION_FACTOR = 0.001
+from constants import (
+    SAMPLE_SEED,
+    EMBEDDING_DIM,
+    LEARNING_RATE,
+    REGULARIZATION_FACTOR,
+)
 
 
 def create_bigram_set() -> tuple[

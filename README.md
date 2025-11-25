@@ -6,7 +6,7 @@ Each project includes explicit credits and acknowledgments.
 
 ## Projects
 
-### [micrograd](./micrograd/)
+### [AutoDiff](./autodiff/)
 
 A minimal autograd engine and neural network library implemented from scratch in Python. This project serves as my first hands-on experience with deep learning neural networks.
 
@@ -18,7 +18,7 @@ A minimal autograd engine and neural network library implemented from scratch in
 - Gradient descent training
 - A simple PyTorch comparison example
 
-See the [micrograd README](./micrograd/README.md) for detailed documentation.
+See the [autodiff README](./autodiff/README.md) for detailed documentation.
 
 ## Requirements
 

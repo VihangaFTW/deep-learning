@@ -3,7 +3,7 @@ from __future__ import annotations
 from graphviz import Digraph
 from typing import TypeVar
 
-from micrograd.node import Node
+from autodiff.node import Node
 
 # Type variable bound to Node to accept any Node instance (including Self@Node).
 # This is needed to work around type checker limitations with Self@Node types.

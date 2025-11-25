@@ -1,4 +1,4 @@
-from micrograd.node import Node
+from autodiff.node import Node
 
 
 def main() -> None:

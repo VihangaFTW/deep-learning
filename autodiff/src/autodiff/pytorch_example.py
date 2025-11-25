@@ -1,10 +1,10 @@
 import torch
 
 
-def micrograd_example():
-    """PyTorch example demonstrating the same computation as micrograd.
+def autodiff_example():
+    """PyTorch example demonstrating the same computation as autodiff.
 
-    This example performs the same forward and backward pass as the micrograd
+    This example performs the same forward and backward pass as the autodiff
     implementation, but using PyTorch's automatic differentiation system.
     """
     input1 = torch.Tensor([2.0]).double()
@@ -45,4 +45,4 @@ def micrograd_example():
 
 
 if __name__ == "__main__":
-    micrograd_example()
+    autodiff_example()

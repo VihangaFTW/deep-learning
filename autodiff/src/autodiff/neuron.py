@@ -1,5 +1,5 @@
 from random import uniform
-from micrograd.node import Node
+from autodiff.node import Node
 
 
 class Neuron:

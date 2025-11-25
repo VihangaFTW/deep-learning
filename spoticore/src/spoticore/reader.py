@@ -1,11 +1,10 @@
 import csv
 import string
 
+from constants import LYRICS_COLUMN, DEFAULT_CSV_PATH
 
-LYRICS_COLUMN = "text"
 
-
-def read_all_lyrics(csv_path: str = "spotify_lyrics.csv") -> list[str]:
+def read_all_lyrics(csv_path: str = DEFAULT_CSV_PATH) -> list[str]:
     """
     Process the Spotify lyrics CSV file and extract all lyrics text.
 
@@ -29,7 +28,7 @@ def read_all_lyrics(csv_path: str = "spotify_lyrics.csv") -> list[str]:
     return lyrics_list
 
 
-def read_all_unique_words(csv_path: str = "spotify_lyrics.csv") -> list[str]:
+def read_all_unique_words(csv_path: str = DEFAULT_CSV_PATH) -> list[str]:
     """
     Process the Spotify lyrics CSV file and extract all unique individual words.
 

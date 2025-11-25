@@ -2,8 +2,7 @@ from reader import read_all_lyrics
 import matplotlib.pyplot as plt
 import torch
 
-
-SAMPLE_SEED = 534150593
+from constants import SAMPLE_SEED
 
 
 def build_vocab_from_lyrics(
