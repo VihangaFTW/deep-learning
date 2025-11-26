@@ -6,7 +6,7 @@ Each project includes explicit credits and acknowledgments.
 
 ## Projects
 
-### [AutoDiff](./autodiff/)
+### [Autodiff](./autodiff/)
 
 A minimal autograd engine and neural network library implemented from scratch in Python. This project serves as my first hands-on experience with deep learning neural networks.
 
@@ -30,7 +30,7 @@ See the [autodiff README](./autodiff/README.md) for detailed documentation.
 Each project directory contains its own `pyproject.toml` and can be set up independently:
 
 ```bash
-cd to-directory
+cd to-project-directory
 uv sync
 uv run ...
 ```

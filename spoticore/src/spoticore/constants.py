@@ -28,5 +28,5 @@ HIDDEN_LAYER_SIZE: Final[int] = 100  # Number of neurons in the hidden layer
 # ============================================================================
 # Training Hyperparameters
 # ============================================================================
-LEARNING_RATE: Final[float] = 4.1
+LEARNING_RATE: Final[float] = 0.1
 REGULARIZATION_FACTOR: Final[float] = 0.001

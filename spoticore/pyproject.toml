@@ -5,6 +5,7 @@ description = "character-level bigram model trained on 57,650 lyric samples from
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",
     "torch>=2.9.1",
