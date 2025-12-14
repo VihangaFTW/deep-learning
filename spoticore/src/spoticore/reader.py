@@ -52,7 +52,13 @@ def read_all_unique_words(csv_path: str = DEFAULT_CSV_PATH) -> list[str]:
                 # Replace punctuation with spaces before splitting.
                 sanitized_lyrics = lyrics.translate(translator)
                 # Filter out empty strings created by consecutive spaces.
-                words_list.extend([word for word in sanitized_lyrics.split() if word])
+                words_list.extend(
+                    [
+                        word
+                        for word in sanitized_lyrics.split()
+                        if word and len(word) <= 20
+                    ]
+                )
 
     return list(set(words_list))
 
