@@ -1,4 +1,4 @@
-from bigram import words_to_indices, build_vocab_from_words
+from spoticore_p0_0 import words_to_indices, build_vocab_from_words
 from reader import read_all_unique_words
 import torch
 import torch.nn as nn
