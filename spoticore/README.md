@@ -74,6 +74,7 @@ Each _stage_ builds upon previous work and is structured to demonstrate fundamen
 
 - WaveNet-inspired architecture with hierarchical receptive fields
 - A smol (but respectable) PyTorch-like module system via Embedding, Linear, FlattenConsecutive, Tanh and Sequential classes. Yes, it's inspired by Pytorch's `torch.nn` module.
+- Reference: [van den Oord et al., 2016](https://arxiv.org/pdf/1609.03499)
 
 Note:
 
