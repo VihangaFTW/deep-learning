@@ -8,7 +8,7 @@ Each project includes explicit credits and acknowledgments.
 
 ### [Autodiff](./autodiff/)
 
-A minimal autograd engine and neural network library implemented from scratch in Python. This project serves as my first hands-on experience with deep learning neural networks.
+A minimal autograd engine implemented from scratch in Python. This project serves as my first hands-on experience with deep learning neural networks.
 
 **Features:**
 
