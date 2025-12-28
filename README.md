@@ -20,6 +20,21 @@ A minimal autograd engine and neural network library implemented from scratch in
 
 See the [autodiff README](./autodiff/README.md) for detailed documentation.
 
+### [Spoticore](./spoticore/)
+
+A character-level language model trained on Spotify lyrics, implementing progressively sophisticated neural architectures from a basic bigram model to a WaveNet-inspired MLP.
+
+**Features:**
+
+- Statistical bigram model with frequency counting
+- Neural bigram model with character embeddings
+- Multi-layer perceptron with context windows
+- Optimizations like Kaiming initialization and Batch Normalization
+- WaveNet-inspired architecture with custom PyTorch-like modules
+- Text generation capabilities
+
+See the [spoticore README](./spoticore/README.md) for detailed documentation.
+
 ## Requirements
 
 - Python >= 3.14
