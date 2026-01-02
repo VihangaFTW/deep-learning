@@ -30,6 +30,7 @@ batch_size = 32
 block_size = 8
 max_iters = 100_00
 learning_rate = 1e-2
+eval_interval = 500
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 torch.manual_seed(SEED)
@@ -61,6 +62,23 @@ def _get_batch(btype: BatchType, tokens: TokenStore) -> (torch.Tensor, torch.Ten
     return inputs, targets
 
 
+@torch.inference_mode()
+def estimate_loss(model: torch.Module, tokens: TokenStore, device: str) -> torch.Tensor:
+    model.eval()
+    try:
+        avg_losses: dict[str, float] = {}
+        for btype in BatchType:
+            losses = torch.zeros(eval_interval)
+            for k in range(eval_interval):
+                X, Y = _get_batch(btype, tokens)
+                _, loss = model(X.to(device), Y.to(device))
+                losses[k] = loss.item()
+            avg_losses[btype] = losses.mean()
+        return avg_losses
+    finally:
+        model.train()
+
+
 class BigramModel(nn.Module):
     def __init__(self, vocab_size: int) -> None:
         super().__init__()
@@ -85,20 +103,18 @@ class BigramModel(nn.Module):
 
         return logits, loss
 
-    def generate(self, input_toks: torch.Tensor, max_new_toks: int) -> torch.Tensor:
+    def generate(self, context: torch.Tensor, max_new_toks: int) -> torch.Tensor:
         for _ in range(max_new_toks):
             # forward pass in generation mode
-            logits, _ = self(input_toks, None)
+            logits, _ = self(context, None)
             # only last token for each sequence needed
             logits = logits[:, -1, :]  # shape: (B, C)
             probs = F.softmax(logits, dim=1)
             # sample from each batch's probability distribution for next token
             next_toks = torch.multinomial(probs, num_samples=1)  # shape: (B, 1)
-            input_toks = torch.cat(
-                (input_toks, next_toks), dim=1
-            )  # inputs shape: (B, T+1)
+            context = torch.cat((context, next_toks), dim=1)  # inputs shape: (B, T+1)
 
-        return input_toks
+        return context
 
 
 def main():
@@ -120,13 +136,29 @@ def main():
     toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
 
     model = BigramModel(vocab_size)
+    # move model parameters to gpu
+    model = model.to(device)
 
     # gradient optimizer for updating hyperparameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # training loop
-    for _ in range(max_iters):
+    for iter_id in range(max_iters):
+        # evaluate average model performance over different batch types
+        if iter_id % eval_interval == 0:
+            losses = estimate_loss(model, toks, device)
+            print(
+                f"iteration {iter_id}: \
+                  train loss: {losses[BatchType.train]} \
+                  val loss: {losses[BatchType.val]} "
+            )
+
+        # sample a batch of data
         binputs, btargets = _get_batch(BatchType.train, toks)
+        # move batches to gpu
+        binputs, btargets = binputs.to(device), btargets.to(device)
+
+        # evaluate loss
         _, loss = model.forward(binputs, btargets)
         optimizer.zero_grad()
         loss.backward()
@@ -135,9 +167,9 @@ def main():
     print(f"Final loss: {loss}")
 
     # text generation
-    input_toks = torch.zeros((1, 1), dtype=torch.long)
-    gen_toks = model.generate(input_toks, 500)
-    print("Generated text:", _decode(gen_toks, tok2char))
+    context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    context = model.generate(context, 500)
+    print("Generated text:", _decode(context, tok2char))
 
 
 if __name__ == "__main__":
