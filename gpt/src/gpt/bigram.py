@@ -28,9 +28,9 @@ class TokenStore:
 # model hyperparameters
 batch_size = 32
 block_size = 8
-max_iters = 100_00
+max_iters = 500_00
 learning_rate = 1e-2
-eval_interval = 500
+eval_interval = 1000
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 torch.manual_seed(SEED)
@@ -65,6 +65,8 @@ def _get_batch(btype: BatchType, tokens: TokenStore) -> (torch.Tensor, torch.Ten
 @torch.inference_mode()
 def estimate_loss(model: torch.Module, tokens: TokenStore, device: str) -> torch.Tensor:
     model.eval()
+    # try-finally ensures model.train() called even if there's an error
+    # duing loss estimation so that training loop is not affected.
     try:
         avg_losses: dict[str, float] = {}
         for btype in BatchType:
@@ -148,9 +150,9 @@ def main():
         if iter_id % eval_interval == 0:
             losses = estimate_loss(model, toks, device)
             print(
-                f"iteration {iter_id}: \
-                  train loss: {losses[BatchType.train]} \
-                  val loss: {losses[BatchType.val]} "
+                f"iteration {iter_id}: "
+                f"train loss: {losses[BatchType.train]:.4f}, "
+                f"val loss: {losses[BatchType.val]:.4f}"
             )
 
         # sample a batch of data
@@ -173,4 +175,8 @@ def main():
 
 
 if __name__ == "__main__":
+    if torch.cuda.is_available():
+        print("GPU Device:", torch.cuda.get_device_name(0))
+    else:
+        print("Using CPU")
     main()
