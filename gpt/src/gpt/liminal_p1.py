@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 
 SEED: Final[int] = 3252
-TXT_PATH: Final[int] = "./book.txt"
+TXT_PATH: Final[str] = "./book.txt"
 
 
 class BatchType(StrEnum):
@@ -42,11 +42,13 @@ def _encode(s: str, char2tok: dict[str, int]) -> torch.Tensor:
 
 
 def _decode(sequences: torch.Tensor, tok2char: dict[int, str]) -> str:
-    return "".join(tok2char[tok.item()] for seq in sequences for tok in seq)
+    return "".join(tok2char[int(tok.item())] for seq in sequences for tok in seq)
 
 
 # define mini batch data loader
-def _get_batch(btype: BatchType, tokens: TokenStore) -> (torch.Tensor, torch.Tensor):
+def _get_batch(
+    btype: BatchType, tokens: TokenStore
+) -> tuple[torch.Tensor, torch.Tensor]:
     match btype:
         case BatchType.train:
             toks = tokens.train
@@ -63,12 +65,14 @@ def _get_batch(btype: BatchType, tokens: TokenStore) -> (torch.Tensor, torch.Ten
 
 
 @torch.inference_mode()
-def estimate_loss(model: torch.Module, tokens: TokenStore, device: str) -> torch.Tensor:
+def estimate_loss(
+    model: nn.Module, tokens: TokenStore, device: str
+) -> dict[str, torch.Tensor]:
     model.eval()
     # try-finally ensures model.train() called even if there's an error
     # duing loss estimation so that training loop is not affected.
     try:
-        avg_losses: dict[str, float] = {}
+        avg_losses: dict[str, torch.Tensor] = {}
         for btype in BatchType:
             losses = torch.zeros(eval_interval)
             for k in range(eval_interval):
@@ -88,7 +92,7 @@ class BigramModel(nn.Module):
 
     def forward(
         self, input_toks: torch.Tensor, target_toks: torch.Tensor | None
-    ) -> (torch.Tensor, torch.Tensor | None):
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         logits = self.token_embed_table(input_toks)
 
         if target_toks is None:
@@ -162,11 +166,10 @@ def main():
 
         # evaluate loss
         _, loss = model.forward(binputs, btargets)
+        assert loss is not None  # stupid type checker
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-    print(f"Final loss: {loss}")
 
     # text generation
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
