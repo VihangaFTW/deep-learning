@@ -34,6 +34,7 @@ learning_rate = 1e-2
 eval_interval = 1000
 
 n_embd = 32
+n_heads = 1
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -89,12 +90,48 @@ def estimate_loss(
         model.train()
 
 
+class Head(nn.Module):
+    """
+    One head of self-attention.
+    """
+
+    def __init__(self, n_embd: int, block_size: int, head_size: int) -> None:
+        super().__init__()
+        self.head_size = head_size
+
+        self.key = nn.Linear(n_embd, head_size, bias=False)
+        self.query = nn.Linear(n_embd, head_size, bias=False)
+        self.value = nn.Linear(n_embd, head_size, bias=False)
+        # register mask as buffer as we need to move the mask between cpu/gpu
+        self.register_buffer(
+            "tril_mask", torch.tril(torch.ones(block_size, block_size))
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        k, q, v = self.key(x), self.query(x), self.value(x)  # (B,T,head_size)
+        # (B,T,head_size) @ (B,head_size, T) --> (B,T,T)
+        w = q @ k.transpose(-2, -1)
+        scaled_w = w * self.head_size**-0.5
+        masked_w = scaled_w.masked_fill(self.tril_mask == 0, float("-inf"))
+        att_mat = masked_w.softmax(-1)
+        # (B,T,T) @ (B,T,head_size) --> (B,T,head_size)
+        weighted_att_mat: torch.Tensor = att_mat @ v
+        return weighted_att_mat
+
+
 class BigramModel(nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int, block_size: int) -> None:
+    def __init__(
+        self, vocab_size: int, n_embd: int, n_heads: int, block_size: int
+    ) -> None:
         super().__init__()
         self.token_embd_table = nn.Embedding(vocab_size, n_embd)
         self.position_embd_table = nn.Embedding(block_size, n_embd)
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        # lm_head is the final projection layer that converts model's
+        # internal representations back into predictions over vocabulary
+        self.lm_head = nn.Linear(n_embd // n_heads, vocab_size)
+        self.sa_head = Head(n_embd, block_size, head_size=n_embd // n_heads)
+
+        self.block_size = block_size
 
     def forward(
         self, input_toks: torch.Tensor, target_toks: torch.Tensor | None
@@ -105,9 +142,13 @@ class BigramModel(nn.Module):
         pos_embds = self.position_embd_table(
             torch.arange(T, device=device)
         )  # (T, n_embd)
+
         input_embds = tok_embds + pos_embds  # (B, T, n_embd)
 
-        logits = self.lm_head(input_embds)  # (B, T, vocab_size)
+        weighted_att_mat = self.sa_head(input_embds)  # (B, T, head_size)
+
+        # (B,T,n_embd) @ (n_embd, vocab_size) --> (B,T,vocab_size)
+        logits = self.lm_head(weighted_att_mat)
 
         if target_toks is None:
             loss = None
@@ -125,11 +166,14 @@ class BigramModel(nn.Module):
 
     def generate(self, context: torch.Tensor, max_new_toks: int) -> torch.Tensor:
         for _ in range(max_new_toks):
+            # model cannot handle sequence len > 8
+            trimmed_ctx = context[:, -self.block_size :]
+
             # forward pass in generation mode
-            logits, _ = self(context, None)
+            logits, _ = self(trimmed_ctx, None)
             # only last token for each sequence needed
             logits = logits[:, -1, :]  # shape: (B, C)
-            probs = F.softmax(logits, dim=1)
+            probs = F.softmax(logits, dim=-1)
             # sample from each batch's probability distribution for next token
             next_toks = torch.multinomial(probs, num_samples=1)  # shape: (B, 1)
             context = torch.cat((context, next_toks), dim=1)  # inputs shape: (B, T+1)
@@ -155,7 +199,7 @@ def main():
     lim = int(0.9 * len(text))
     toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
 
-    model = BigramModel(vocab_size, n_embd, block_size)
+    model = BigramModel(vocab_size, n_embd, n_heads, block_size)
     # move model parameters to gpu
     model = model.to(device)
 
