@@ -25,16 +25,25 @@ class TokenStore:
     val: torch.Tensor
 
 
+@dataclass(frozen=True)
+class Params:
+    n_embd: int
+    n_heads: int
+    head_size: int
+    block_size: int
+    vocab_size: int
+
+
 # model hyperparameters
 batch_size = 32
 block_size = 8
 
-max_iters = 500_00
-learning_rate = 1e-2
+max_iters = 5000
+learning_rate = 1e-3
 eval_interval = 1000
 
 n_embd = 32
-n_heads = 1
+n_heads = 4
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -90,6 +99,24 @@ def estimate_loss(
         model.train()
 
 
+class MultiHeadAttention(nn.Module):
+    """
+    Multiple heads of self-attention in parallel.
+    """
+
+    def __init__(self, params: Params) -> None:
+        super().__init__()
+        self.heads = nn.ModuleList(
+            Head(params.n_embd, params.block_size, params.head_size)
+            for _ in range(params.n_heads)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # each head output: (B, T, head_size)
+        # concat result: (B,T,n_embd) as head_size = n_embd/n_heads
+        return torch.cat([h(x) for h in self.heads], dim=-1)
+
+
 class Head(nn.Module):
     """
     One head of self-attention.
@@ -102,17 +129,20 @@ class Head(nn.Module):
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.tril_mask: torch.Tensor
         # register mask as buffer as we need to move the mask between cpu/gpu
         self.register_buffer(
             "tril_mask", torch.tril(torch.ones(block_size, block_size))
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C = x.shape
         k, q, v = self.key(x), self.query(x), self.value(x)  # (B,T,head_size)
         # (B,T,head_size) @ (B,head_size, T) --> (B,T,T)
         w = q @ k.transpose(-2, -1)
         scaled_w = w * self.head_size**-0.5
-        masked_w = scaled_w.masked_fill(self.tril_mask == 0, float("-inf"))
+        # slice mask to match actual sequence length T
+        masked_w = scaled_w.masked_fill(self.tril_mask[:T, :T] == 0, float("-inf"))
         att_mat = masked_w.softmax(-1)
         # (B,T,T) @ (B,T,head_size) --> (B,T,head_size)
         weighted_att_mat: torch.Tensor = att_mat @ v
@@ -120,16 +150,14 @@ class Head(nn.Module):
 
 
 class BigramModel(nn.Module):
-    def __init__(
-        self, vocab_size: int, n_embd: int, n_heads: int, block_size: int
-    ) -> None:
+    def __init__(self, params: Params) -> None:
         super().__init__()
-        self.token_embd_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embd_table = nn.Embedding(block_size, n_embd)
+        self.token_embd_table = nn.Embedding(params.vocab_size, params.n_embd)
+        self.position_embd_table = nn.Embedding(params.block_size, params.n_embd)
         # lm_head is the final projection layer that converts model's
         # internal representations back into predictions over vocabulary
-        self.lm_head = nn.Linear(n_embd // n_heads, vocab_size)
-        self.sa_head = Head(n_embd, block_size, head_size=n_embd // n_heads)
+        self.lm_head = nn.Linear(params.n_embd, params.vocab_size)
+        self.sa_heads = MultiHeadAttention(params)
 
         self.block_size = block_size
 
@@ -145,10 +173,10 @@ class BigramModel(nn.Module):
 
         input_embds = tok_embds + pos_embds  # (B, T, n_embd)
 
-        weighted_att_mat = self.sa_head(input_embds)  # (B, T, head_size)
+        concat_weights = self.sa_heads(input_embds)  # (B,T,n_embd)
 
         # (B,T,n_embd) @ (n_embd, vocab_size) --> (B,T,vocab_size)
-        logits = self.lm_head(weighted_att_mat)
+        logits = self.lm_head(concat_weights)
 
         if target_toks is None:
             loss = None
@@ -199,7 +227,10 @@ def main():
     lim = int(0.9 * len(text))
     toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
 
-    model = BigramModel(vocab_size, n_embd, n_heads, block_size)
+    head_size = n_embd // n_heads
+    params = Params(n_embd, n_heads, head_size, block_size, vocab_size)
+
+    model = BigramModel(params)
     # move model parameters to gpu
     model = model.to(device)
 
@@ -241,3 +272,6 @@ if __name__ == "__main__":
     else:
         print("Using CPU")
     main()
+
+    # val loss with 32 embds,1 head: 2.3310
+    # val loss with 32 embds,4 heads: 2.1903
