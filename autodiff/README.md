@@ -1,6 +1,6 @@
 # Autodiff
 
-A minimal autograd engine implemented from scratch in Python. This project demonstrates the fundamentals of automatic differentiation, backpropagation, and neural network training by building a simple but complete deep learning framework. Autodiff is inspired by PyTorch's own autograd engine.
+A minimal autograd engine for scalar (non-tensor) computations implemented from scratch in Python. This project demonstrates the fundamentals of automatic differentiation, backpropagation, and neural network training by building a simple but complete deep learning framework. Autodiff is inspired by PyTorch's own autograd engine.
 
 ## Overview
 
