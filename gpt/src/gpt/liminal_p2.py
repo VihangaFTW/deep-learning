@@ -9,6 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from type_checker import apply_module
+
 
 SEED: Final[int] = 3252
 TXT_PATH: Final[str] = "./book.txt"
@@ -126,9 +128,9 @@ class Head(nn.Module):
         super().__init__()
         self.head_size = head_size
 
-        self.key = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.key = apply_module(nn.Linear(n_embd, head_size, bias=False))
+        self.query = apply_module(nn.Linear(n_embd, head_size, bias=False))
+        self.value = apply_module(nn.Linear(n_embd, head_size, bias=False))
         self.tril_mask: torch.Tensor
         # register mask as buffer as we need to move the mask between cpu/gpu
         self.register_buffer(
@@ -140,13 +142,31 @@ class Head(nn.Module):
         k, q, v = self.key(x), self.query(x), self.value(x)  # (B,T,head_size)
         # (B,T,head_size) @ (B,head_size, T) --> (B,T,T)
         w = q @ k.transpose(-2, -1)
-        scaled_w = w * self.head_size**-0.5
+        scaled_w: torch.Tensor = w * self.head_size**-0.5
         # slice mask to match actual sequence length T
         masked_w = scaled_w.masked_fill(self.tril_mask[:T, :T] == 0, float("-inf"))
         att_mat = masked_w.softmax(-1)
         # (B,T,T) @ (B,T,head_size) --> (B,T,head_size)
-        weighted_att_mat: torch.Tensor = att_mat @ v
+        weighted_att_mat = att_mat @ v
         return weighted_att_mat
+
+
+class FeedForward(nn.Module):
+    """
+    A simple feedforward network with a single hidden layer.
+
+    This module applies a linear transformation, followed by RELU non-linearity.
+    """
+
+    def __init__(self, n_embd: int, vocab_size: int) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, n_embd),
+            nn.ReLU(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
 
 
 class BigramModel(nn.Module):
@@ -154,12 +174,16 @@ class BigramModel(nn.Module):
         super().__init__()
         self.token_embd_table = nn.Embedding(params.vocab_size, params.n_embd)
         self.position_embd_table = nn.Embedding(params.block_size, params.n_embd)
-        # lm_head is the final projection layer that converts model's
-        # internal representations back into predictions over vocabulary
-        self.lm_head = nn.Linear(params.n_embd, params.vocab_size)
+
         self.sa_heads = MultiHeadAttention(params)
 
-        self.block_size = block_size
+        self.ffwd = FeedForward(params.n_embd, params.vocab_size)
+
+        # lm_head is the final projection layer that converts model's
+        # internal representations back into predictions over vocabulary
+        self.lm_head = apply_module(nn.Linear(params.n_embd, params.vocab_size))
+
+        self.block_size = params.block_size
 
     def forward(
         self, input_toks: torch.Tensor, target_toks: torch.Tensor | None
@@ -175,8 +199,11 @@ class BigramModel(nn.Module):
 
         concat_weights = self.sa_heads(input_embds)  # (B,T,n_embd)
 
+        # (B,T,n_embd) --> (B,T,n_embd)
+        activations = self.ffwd(concat_weights)
+
         # (B,T,n_embd) @ (n_embd, vocab_size) --> (B,T,vocab_size)
-        logits = self.lm_head(concat_weights)
+        logits = self.lm_head(activations)
 
         if target_toks is None:
             loss = None
@@ -273,5 +300,6 @@ if __name__ == "__main__":
         print("Using CPU")
     main()
 
-    # val loss with 32 embds,1 head: 2.3310
-    # val loss with 32 embds,4 heads: 2.1903
+    # val loss with 5000 iters,32 embds,1 head: 2.3310
+    # val loss with 5000 iters,32 embds,4 heads: 2.1903
+    # val loss with 5000 iters,32 embds,4 heads, with ffwd: 2.1735
