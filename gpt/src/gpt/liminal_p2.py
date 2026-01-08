@@ -17,18 +17,47 @@ TXT_PATH: Final[str] = "./book.txt"
 
 
 class BatchType(StrEnum):
+    """
+    Enumeration for different types of data batches used in training.
+
+    Attributes:
+        train: Training dataset batch type.
+        val: Validation dataset batch type.
+    """
+
     train = "training_dataset"
     val = "validation_dataset"
 
 
 @dataclass(frozen=True)
 class TokenStore:
+    """
+    Immutable container for storing tokenized training and validation datasets.
+
+    Attributes:
+        train: Tokenized training data as a 1D tensor.
+        val: Tokenized validation data as a 1D tensor.
+    """
+
     train: torch.Tensor
     val: torch.Tensor
 
 
 @dataclass(frozen=True)
 class ModelParams:
+    """
+    Configuration parameters for the LiminalGPT model architecture.
+
+    Attributes:
+        vocab_size: Size of the vocabulary (number of unique tokens).
+        embd_dims: Dimensionality of token embeddings and hidden states.
+        n_heads: Number of attention heads in multi-head attention.
+        block_size: Maximum sequence length (context window).
+        ffn_layer_scale: Scale factor for feedforward network hidden layer size.
+        drop_rate: Dropout probability for regularization.
+        n_layers: Number of transformer blocks in the model.
+    """
+
     vocab_size: int
     embd_dims: int = 32
     n_heads: int = 4
@@ -65,10 +94,12 @@ torch.manual_seed(SEED)
 
 # define token encoder & decoder
 def _encode(s: str, char2tok: dict[str, int]) -> torch.Tensor:
+    """Convert string to tensor of token indices using character-to-token mapping."""
     return torch.tensor([char2tok[char] for char in s], dtype=torch.long)
 
 
 def _decode(sequences: torch.Tensor, tok2char: dict[int, str]) -> str:
+    """Convert tensor of token indices back to string using token-to-character mapping."""
     return "".join(tok2char[int(tok.item())] for seq in sequences for tok in seq)
 
 
@@ -83,6 +114,11 @@ def _save_generated_text(text: str, filepath: str) -> None:
 def _get_batch(
     btype: BatchType, tokens: TokenStore
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate a random batch of input-target pairs from training or validation data.
+
+    Returns inputs of shape (batch_size, block_size) and targets shifted by one position.
+    """
     match btype:
         case BatchType.train:
             toks = tokens.train
@@ -102,6 +138,11 @@ def _get_batch(
 def estimate_loss(
     model: nn.Module, tokens: TokenStore, device: str
 ) -> dict[str, torch.Tensor]:
+    """
+    Estimate average loss on training and validation sets over multiple batches.
+
+    Temporarily sets model to eval mode and ensures it returns to train mode afterward.
+    """
     model.eval()
     # try-finally ensures model.train() called even if there's an error
     # duing loss estimation so that training loop is not affected.
@@ -121,7 +162,17 @@ def estimate_loss(
 
 class MultiHeadAttention(nn.Module):
     """
-    Multiple heads of self-attention in parallel.
+    Multi-head self-attention mechanism for parallel attention computation.
+
+    This module runs multiple attention heads in parallel, allowing the model
+    to jointly attend to information from different representation subspaces.
+    Each head operates on a different portion of the embedding dimensions,
+    and their outputs are concatenated and projected back to the original
+    embedding dimension.
+
+    The projection layer after concatenation allows different heads' learned
+    representations to interact and combine through matrix multiplication,
+    rather than keeping them isolated.
     """
 
     def __init__(self, params: ModelParams) -> None:
@@ -139,6 +190,17 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(params.drop_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply multi-head attention to input embeddings.
+
+        Args:
+            x: Input tensor of shape (B, T, embd_dims) where B is batch size,
+               T is sequence length, and embd_dims is embedding dimension.
+
+        Returns:
+            Output tensor of shape (B, T, embd_dims) after multi-head attention,
+            projection, and dropout.
+        """
         # each head output: (B, T, head_size)
         # concat result: (B,T,embd_dims) as head_size = embd_dims/n_heads
         out = torch.cat([h(x) for h in self.heads], dim=-1)
@@ -149,7 +211,16 @@ class MultiHeadAttention(nn.Module):
 
 class Head(nn.Module):
     """
-    One head of self-attention.
+    Single head of scaled dot-product self-attention with causal masking.
+
+    This module implements one attention head using the query-key-value mechanism:
+    - Queries and keys are used to compute attention weights (affinities between tokens).
+    - Scaled dot-product prevents gradient issues as head_size grows.
+    - Causal (triangular) masking ensures tokens can only attend to previous positions.
+    - Values are weighted by attention scores to produce the output.
+
+    The attention mechanism allows each token to focus on relevant context
+    from earlier positions in the sequence.
     """
 
     def __init__(
@@ -169,6 +240,25 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(drop_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute scaled dot-product attention with causal masking.
+
+        This method performs the following steps:
+        1. Projects input to queries, keys, and values.
+        2. Computes attention scores using scaled dot-product (Q @ K^T / sqrt(head_size)).
+        3. Applies causal mask to prevent attending to future tokens.
+        4. Applies softmax to get attention weights.
+        5. Applies dropout to attention weights.
+        6. Computes weighted sum of values.
+
+        Args:
+            x: Input tensor of shape (B, T, embd_dims) where B is batch size,
+               T is sequence length, and embd_dims is embedding dimension.
+
+        Returns:
+            Output tensor of shape (B, T, head_size) representing the attention-weighted
+            values for this head.
+        """
         B, T, C = x.shape
         k, q, v = self.key(x), self.query(x), self.value(x)  # (B,T,head_size)
         # (B,T,head_size) @ (B,head_size, T) --> (B,T,T)
@@ -186,9 +276,18 @@ class Head(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    A simple feedforward network with a single hidden layer.
+    Position-wise feedforward network with expansion and projection.
 
-    This module applies a linear transformation, followed by RELU non-linearity.
+    This module applies a two-layer feedforward network to each token independently:
+    1. Expansion: Projects embeddings to a larger hidden dimension (embd_dims * layer_scale)
+       to provide a larger "workspace" for computing complex non-linear transformations.
+    2. ReLU activation: Introduces non-linearity.
+    3. Projection: Compresses back to original embedding dimension, forcing the network
+       to distill the most useful features.
+    4. Dropout: Applied for regularization by randomly zeroing elements.
+
+    This expansion-and-projection pattern allows the model to learn rich representations
+    while maintaining a consistent embedding dimension throughout the architecture.
     """
 
     def __init__(self, embd_dims: int, layer_scale: int, drop_rate: float) -> None:
@@ -207,10 +306,30 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply feedforward transformation to input.
+
+        Args:
+            x: Input tensor of shape (B, T, embd_dims) where B is batch size,
+               T is sequence length, and embd_dims is embedding dimension.
+
+        Returns:
+            Output tensor of shape (B, T, embd_dims) after feedforward transformation.
+        """
         return self.net(x)
 
 
 class Block(nn.Module):
+    """
+    Transformer block combining multi-head attention and feedforward network.
+
+    This module implements a standard transformer block with:
+    - Multi-head self-attention for capturing token relationships.
+    - Feedforward network for token-wise transformations.
+    - Layer normalization (pre-norm) before each sub-layer.
+    - Residual connections around each sub-layer.
+    """
+
     def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.sa = MultiHeadAttention(params)
@@ -221,6 +340,21 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(params.embd_dims)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply transformer block with pre-norm and residual connections.
+
+        The computation follows the pre-norm architecture:
+        1. x = x + self_attention(layer_norm(x))
+        2. x = x + feedforward(layer_norm(x))
+
+        Args:
+            x: Input tensor of shape (B, T, embd_dims) where B is batch size,
+               T is sequence length, and embd_dims is embedding dimension.
+
+        Returns:
+            Output tensor of shape (B, T, embd_dims) after attention, feedforward,
+            and residual connections.
+        """
         # normalize feature vector per token
         # add residual connections
         x = x + self.sa(self.ln1(x))
@@ -229,6 +363,18 @@ class Block(nn.Module):
 
 
 class LiminalGPT(nn.Module):
+    """
+    A GPT-style language model for character-level text generation.
+
+    This model implements a decoder-only transformer architecture with:
+    - Token and positional embeddings.
+    - Multiple stacked transformer blocks.
+    - Language modeling head for next-token prediction.
+
+    The model uses masked self-attention to ensure autoregressive generation,
+    where each token can only attend to previous tokens in the sequence.
+    """
+
     def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.params = params
@@ -246,6 +392,28 @@ class LiminalGPT(nn.Module):
     def forward(
         self, input_toks: torch.Tensor, target_toks: torch.Tensor | None
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """
+        Forward pass for language modeling with optional loss computation.
+
+        The forward pass consists of:
+        1. Token embeddings + positional embeddings.
+        2. Processing through transformer blocks.
+        3. Final layer normalization.
+        4. Projection to vocabulary logits.
+        5. Cross-entropy loss computation (if targets provided).
+
+        Args:
+            input_toks: Input token indices of shape (B, T) where B is batch size
+                        and T is sequence length.
+            target_toks: Target token indices of shape (B, T) for loss computation,
+                         or None during generation.
+
+        Returns:
+            A tuple containing:
+            - logits: Predicted token logits of shape (B, T, vocab_size) during generation,
+                      or (B*T, vocab_size) during training.
+            - loss: Cross-entropy loss if target_toks provided, None otherwise.
+        """
         B, T = input_toks.shape
 
         tok_embds = self.token_embd_dims_table(input_toks)  # (B, T, embd_dims)
@@ -276,6 +444,25 @@ class LiminalGPT(nn.Module):
         return logits, loss
 
     def generate(self, context: torch.Tensor, max_new_toks: int) -> torch.Tensor:
+        """
+        Generate new tokens autoregressively using the trained model.
+
+        This method generates text by:
+        1. Taking the most recent block_size tokens as context.
+        2. Predicting the next token using the model.
+        3. Sampling from the predicted probability distribution.
+        4. Appending the sampled token to the context.
+        5. Repeating steps 1-4 for max_new_toks iterations.
+
+        Args:
+            context: Initial context tensor of shape (B, T) containing token indices,
+                     where B is batch size and T is current sequence length.
+            max_new_toks: Number of new tokens to generate.
+
+        Returns:
+            Extended context tensor of shape (B, T + max_new_toks) containing
+            the original context plus the newly generated tokens.
+        """
         for _ in range(max_new_toks):
             # model cannot handle sequence len > 8
             trimmed_ctx = context[:, -self.params.block_size :]
@@ -293,6 +480,7 @@ class LiminalGPT(nn.Module):
 
 
 def main():
+    """Train LiminalGPT model on text data and generate sample output."""
     # load training dataset
     with open(TXT_PATH, "r", encoding="utf-8") as bk:
         text = bk.read()
