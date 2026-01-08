@@ -37,6 +37,21 @@ Spoticore is still under development and will be updated frequently.
 
 See the [spoticore README](./spoticore/README.md) for detailed documentation.
 
+### [LiminalGPT](./gpt/)
+
+A character-level GPT implementation using decoder-only transformer architecture with masked self-attention.
+
+**Architecture:**
+
+- Multi-head scaled dot-product attention with causal masking
+- Position-wise feedforward networks with expansion/projection
+- Pre-norm residual connections
+- Token and positional embeddings
+- Layer normalization and dropout regularization
+
+
+See the [gpt README](./gpt/README.md) for detailed documentation.
+
 ## Requirements
 
 - Python >= 3.14
