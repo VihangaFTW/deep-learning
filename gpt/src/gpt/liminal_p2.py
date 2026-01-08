@@ -28,12 +28,17 @@ class TokenStore:
 
 
 @dataclass(frozen=True)
-class Params:
-    n_embd: int
-    n_heads: int
-    head_size: int
-    block_size: int
+class ModelParams:
     vocab_size: int
+    embd_dims: int = 32
+    n_heads: int = 4
+    block_size: int = 8
+    ffn_layer_scale: int = 4
+
+    @property
+    def head_size(self) -> int:
+        """Calculate head size from embedding dimensions."""
+        return self.embd_dims // self.n_heads
 
 
 # model hyperparameters
@@ -44,8 +49,9 @@ max_iters = 5000
 learning_rate = 1e-3
 eval_interval = 1000
 
-n_embd = 32
+embd_dims = 32
 n_heads = 4
+ffn_layer_scale = 4
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -106,17 +112,24 @@ class MultiHeadAttention(nn.Module):
     Multiple heads of self-attention in parallel.
     """
 
-    def __init__(self, params: Params) -> None:
+    def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.heads = nn.ModuleList(
-            Head(params.n_embd, params.block_size, params.head_size)
+            Head(params.embd_dims, params.block_size, params.head_size)
             for _ in range(params.n_heads)
         )
+        # ? after concat, each head's output sits in its own isolated part of the embd dims.
+        # ? The projection layer lets different heads' outputs interact and combine their
+        # ? learned representations through matrix multiplication.
+        self.proj = apply_module(nn.Linear(params.embd_dims, params.embd_dims))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # each head output: (B, T, head_size)
-        # concat result: (B,T,n_embd) as head_size = n_embd/n_heads
-        return torch.cat([h(x) for h in self.heads], dim=-1)
+        # concat result: (B,T,embd_dims) as head_size = embd_dims/n_heads
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        # (B,T,C) @ (B,C,C) + (B,C,C) --> (B,T,C)
+        out = self.proj(out)
+        return out
 
 
 class Head(nn.Module):
@@ -124,13 +137,13 @@ class Head(nn.Module):
     One head of self-attention.
     """
 
-    def __init__(self, n_embd: int, block_size: int, head_size: int) -> None:
+    def __init__(self, embd_dims: int, block_size: int, head_size: int) -> None:
         super().__init__()
         self.head_size = head_size
 
-        self.key = apply_module(nn.Linear(n_embd, head_size, bias=False))
-        self.query = apply_module(nn.Linear(n_embd, head_size, bias=False))
-        self.value = apply_module(nn.Linear(n_embd, head_size, bias=False))
+        self.key = apply_module(nn.Linear(embd_dims, head_size, bias=False))
+        self.query = apply_module(nn.Linear(embd_dims, head_size, bias=False))
+        self.value = apply_module(nn.Linear(embd_dims, head_size, bias=False))
         self.tril_mask: torch.Tensor
         # register mask as buffer as we need to move the mask between cpu/gpu
         self.register_buffer(
@@ -158,52 +171,69 @@ class FeedForward(nn.Module):
     This module applies a linear transformation, followed by RELU non-linearity.
     """
 
-    def __init__(self, n_embd: int, vocab_size: int) -> None:
+    def __init__(self, embd_dims: int, layer_scale: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd),
+            # ? expand hidden layer size to givethe network a larger "workspace"
+            # ? to compute complex non-linear transformations
+            nn.Linear(embd_dims, embd_dims * layer_scale),
             nn.ReLU(),
+            # ? projection layer forces the network to compress that information
+            # ? into the most useful features.
+            nn.Linear(layer_scale * embd_dims, embd_dims),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
-class BigramModel(nn.Module):
-    def __init__(self, params: Params) -> None:
+class Block(nn.Module):
+    def __init__(self, params: ModelParams) -> None:
         super().__init__()
-        self.token_embd_table = nn.Embedding(params.vocab_size, params.n_embd)
-        self.position_embd_table = nn.Embedding(params.block_size, params.n_embd)
+        self.sa = MultiHeadAttention(params)
+        self.ffn = FeedForward(params.embd_dims, params.ffn_layer_scale)
 
-        self.sa_heads = MultiHeadAttention(params)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # add residual connections
+        x = x + self.sa(x)
+        x = x + self.ffn(x)
+        return x
 
-        self.ffwd = FeedForward(params.n_embd, params.vocab_size)
 
+class BigramModel(nn.Module):
+    def __init__(self, params: ModelParams) -> None:
+        super().__init__()
+        self.params = params
+
+        self.token_embd_dims_table = nn.Embedding(params.vocab_size, params.embd_dims)
+        self.position_embd_dims_table = nn.Embedding(
+            params.block_size, params.embd_dims
+        )
+        self.blocks = nn.Sequential(
+            Block(params),
+            Block(params),
+            Block(params),
+            Block(params),
+        )
         # lm_head is the final projection layer that converts model's
         # internal representations back into predictions over vocabulary
-        self.lm_head = apply_module(nn.Linear(params.n_embd, params.vocab_size))
-
-        self.block_size = params.block_size
+        self.lm_head = apply_module(nn.Linear(params.embd_dims, params.vocab_size))
 
     def forward(
         self, input_toks: torch.Tensor, target_toks: torch.Tensor | None
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         B, T = input_toks.shape
 
-        tok_embds = self.token_embd_table(input_toks)  # (B, T, n_embd)
-        pos_embds = self.position_embd_table(
+        tok_embds = self.token_embd_dims_table(input_toks)  # (B, T, embd_dims)
+        pos_embds = self.position_embd_dims_table(
             torch.arange(T, device=device)
-        )  # (T, n_embd)
+        )  # (T, embd_dims)
 
-        input_embds = tok_embds + pos_embds  # (B, T, n_embd)
+        input_embds = tok_embds + pos_embds  # (B, T, embd_dims)
 
-        concat_weights = self.sa_heads(input_embds)  # (B,T,n_embd)
-
-        # (B,T,n_embd) --> (B,T,n_embd)
-        activations = self.ffwd(concat_weights)
-
-        # (B,T,n_embd) @ (n_embd, vocab_size) --> (B,T,vocab_size)
-        logits = self.lm_head(activations)
+        acts = self.blocks(input_embds)  # (B,T,embd_dims)
+        # (B,T,embd_dims) @ (embd_dims, vocab_size) --> (B,T,vocab_size)
+        logits = self.lm_head(acts)
 
         if target_toks is None:
             loss = None
@@ -222,7 +252,7 @@ class BigramModel(nn.Module):
     def generate(self, context: torch.Tensor, max_new_toks: int) -> torch.Tensor:
         for _ in range(max_new_toks):
             # model cannot handle sequence len > 8
-            trimmed_ctx = context[:, -self.block_size :]
+            trimmed_ctx = context[:, -self.params.block_size :]
 
             # forward pass in generation mode
             logits, _ = self(trimmed_ctx, None)
@@ -254,8 +284,7 @@ def main():
     lim = int(0.9 * len(text))
     toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
 
-    head_size = n_embd // n_heads
-    params = Params(n_embd, n_heads, head_size, block_size, vocab_size)
+    params = ModelParams(vocab_size, embd_dims, n_heads, block_size, ffn_layer_scale)
 
     model = BigramModel(params)
     # move model parameters to gpu
@@ -302,4 +331,6 @@ if __name__ == "__main__":
 
     # val loss with 5000 iters,32 embds,1 head: 2.3310
     # val loss with 5000 iters,32 embds,4 heads: 2.1903
-    # val loss with 5000 iters,32 embds,4 heads, with ffwd: 2.1735
+    # val loss with 5000 iters,32 embds,4 heads, with ffn: 2.1735
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks: 2.3096 (net too deep; need residual connections)
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale: 1.9157
