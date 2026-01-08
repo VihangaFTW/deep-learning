@@ -1,5 +1,20 @@
 """
-#TODO add module doc
+LiminalGPT: A decoder-only transformer for character-level language modeling.
+
+This module implements a GPT-style language model trained on character-level text data.
+The architecture includes:
+- Token and positional embeddings.
+- Multi-head self-attention with causal masking.
+- Position-wise feedforward networks.
+- Layer normalization and residual connections.
+- Dropout regularization.
+
+The model is trained using next-token prediction with cross-entropy loss and
+can generate text autoregressively by sampling from the learned probability distribution.
+
+Usage:
+    Run as a script to train on a text corpus and generate samples:
+    $ python liminal_p2.py
 """
 
 from dataclasses import dataclass
@@ -73,19 +88,21 @@ class ModelParams:
 
 
 # model hyperparameters
-batch_size = 32
-block_size = 8
+batch_size = 64
+block_size = 256
 
 max_iters = 5000
-learning_rate = 1e-3
-eval_interval = 1000
+learning_rate = 3e-4
 
-embd_dims = 32
-n_heads = 4
+eval_iters = 200
+eval_interval = 500
+
+embd_dims = 384
+
+n_heads = 6
+n_layers = 6
 ffn_layer_scale = 4
-
 drop_rate = 0.2
-n_layers = 20
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -94,17 +111,45 @@ torch.manual_seed(SEED)
 
 # define token encoder & decoder
 def _encode(s: str, char2tok: dict[str, int]) -> torch.Tensor:
-    """Convert string to tensor of token indices using character-to-token mapping."""
+    """
+    Encode a string into a tensor of token indices.
+
+    Args:
+        s: Input string to encode.
+        char2tok: Dictionary mapping characters to token indices.
+
+    Returns:
+        1D tensor of token indices with dtype torch.long.
+    """
     return torch.tensor([char2tok[char] for char in s], dtype=torch.long)
 
 
 def _decode(sequences: torch.Tensor, tok2char: dict[int, str]) -> str:
-    """Convert tensor of token indices back to string using token-to-character mapping."""
+    """
+    Decode a tensor of token indices back into a string.
+
+    Args:
+        sequences: Tensor of token indices, typically of shape (B, T) where B is batch size
+                   and T is sequence length.
+        tok2char: Dictionary mapping token indices to characters.
+
+    Returns:
+        Decoded string formed by concatenating all characters corresponding to token indices.
+    """
     return "".join(tok2char[int(tok.item())] for seq in sequences for tok in seq)
 
 
 def _save_generated_text(text: str, filepath: str) -> None:
-    """Save generated text to a file."""
+    """
+    Save generated text to a file and print confirmation.
+
+    Args:
+        text: The text content to write to the file.
+        filepath: Path to the output file.
+
+    Returns:
+        None. Writes the text to the specified filepath and prints a confirmation message.
+    """
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"Generated text saved to: {filepath}")
@@ -115,9 +160,21 @@ def _get_batch(
     btype: BatchType, tokens: TokenStore
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Generate a random batch of input-target pairs from training or validation data.
+    Generate a random mini-batch of input-target pairs from the dataset.
 
-    Returns inputs of shape (batch_size, block_size) and targets shifted by one position.
+    This function samples random starting positions in the dataset and extracts
+    sequences of length block_size. For each input sequence, the target sequence
+    is offset by one token to facilitate next-token prediction.
+
+    Args:
+        btype: Type of batch to generate (train or validation).
+        tokens: TokenStore containing training and validation token tensors.
+
+    Returns:
+        A tuple containing:
+        - inputs: Tensor of shape (batch_size, block_size) with input token sequences.
+        - targets: Tensor of shape (batch_size, block_size) with target token sequences,
+                   offset by one position from inputs.
     """
     match btype:
         case BatchType.train:
@@ -139,9 +196,25 @@ def estimate_loss(
     model: nn.Module, tokens: TokenStore, device: str
 ) -> dict[str, torch.Tensor]:
     """
-    Estimate average loss on training and validation sets over multiple batches.
+    Estimate average loss on training and validation datasets.
 
-    Temporarily sets model to eval mode and ensures it returns to train mode afterward.
+    This function evaluates the model's performance by computing the average loss
+    over multiple batches for both training and validation datasets. The model is
+    temporarily set to evaluation mode during loss estimation to disable dropout
+    and other training-specific behaviors.
+
+    Args:
+        model: The neural network model to evaluate.
+        tokens: TokenStore containing training and validation token tensors.
+        device: Device string ('cuda' or 'cpu') indicating where to run computations.
+
+    Returns:
+        Dictionary mapping BatchType to average loss tensors. Keys are BatchType.train
+        and BatchType.val, values are scalar tensors representing average losses.
+
+    Note:
+        The function uses torch.inference_mode() for efficiency and ensures the model
+        is set back to training mode via try-finally, even if an error occurs.
     """
     model.eval()
     # try-finally ensures model.train() called even if there's an error
@@ -149,8 +222,8 @@ def estimate_loss(
     try:
         avg_losses: dict[str, torch.Tensor] = {}
         for btype in BatchType:
-            losses = torch.zeros(eval_interval)
-            for k in range(eval_interval):
+            losses = torch.zeros(eval_iters)
+            for k in range(eval_iters):
                 X, Y = _get_batch(btype, tokens)
                 _, loss = model(X.to(device), Y.to(device))
                 losses[k] = loss.item()
@@ -480,7 +553,23 @@ class LiminalGPT(nn.Module):
 
 
 def main():
-    """Train LiminalGPT model on text data and generate sample output."""
+    """
+    Main training and generation pipeline for LiminalGPT.
+
+    This function orchestrates the complete workflow:
+    1. Loads and tokenizes the training text corpus.
+    2. Splits data into training (90%) and validation (10%) sets.
+    3. Initializes the LiminalGPT model with configured hyperparameters.
+    4. Trains the model using AdamW optimizer with periodic loss evaluation.
+    5. Generates sample text using the trained model.
+    6. Saves the generated text to an output file.
+
+    The training loop runs for max_iters iterations, evaluating and reporting
+    training and validation losses at regular intervals (eval_interval).
+
+    Returns:
+        None. Trains the model and saves generated output to './output.txt'.
+    """
     # load training dataset
     with open(TXT_PATH, "r", encoding="utf-8") as bk:
         text = bk.read()
@@ -554,5 +643,6 @@ if __name__ == "__main__":
     # val loss with 5000 iters,32 embds,4 heads, with ffn: 2.1735
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks: 2.3096 (net too deep; need residual connections)
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale: 1.9157
-    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln: 1.8945
-    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln, dropouts: 1.8919
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, ln: 1.8945
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, ln, dropouts: 2.000 (prevented overfitting?)
+# 2.0811
