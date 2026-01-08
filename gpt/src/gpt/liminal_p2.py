@@ -192,11 +192,14 @@ class Block(nn.Module):
         super().__init__()
         self.sa = MultiHeadAttention(params)
         self.ffn = FeedForward(params.embd_dims, params.ffn_layer_scale)
+        self.ln1 = nn.LayerNorm(params.embd_dims)
+        self.ln2 = nn.LayerNorm(params.embd_dims)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # normalize feature vector per token
         # add residual connections
-        x = x + self.sa(x)
-        x = x + self.ffn(x)
+        x = x + self.sa(self.ln1(x))
+        x = x + self.ffn(self.ln2(x))
         return x
 
 
@@ -214,6 +217,7 @@ class BigramModel(nn.Module):
             Block(params),
             Block(params),
             Block(params),
+            nn.LayerNorm(params.embd_dims),
         )
         # lm_head is the final projection layer that converts model's
         # internal representations back into predictions over vocabulary
@@ -334,3 +338,4 @@ if __name__ == "__main__":
     # val loss with 5000 iters,32 embds,4 heads, with ffn: 2.1735
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks: 2.3096 (net too deep; need residual connections)
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale: 1.9157
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln: 1.9051
