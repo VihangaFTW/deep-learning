@@ -34,6 +34,8 @@ class ModelParams:
     n_heads: int = 4
     block_size: int = 8
     ffn_layer_scale: int = 4
+    drop_rate: float = 0.2
+    n_layers: int = 5
 
     @property
     def head_size(self) -> int:
@@ -53,6 +55,9 @@ embd_dims = 32
 n_heads = 4
 ffn_layer_scale = 4
 
+drop_rate = 0.2
+n_layers = 20
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 torch.manual_seed(SEED)
@@ -65,6 +70,13 @@ def _encode(s: str, char2tok: dict[str, int]) -> torch.Tensor:
 
 def _decode(sequences: torch.Tensor, tok2char: dict[int, str]) -> str:
     return "".join(tok2char[int(tok.item())] for seq in sequences for tok in seq)
+
+
+def _save_generated_text(text: str, filepath: str) -> None:
+    """Save generated text to a file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"Generated text saved to: {filepath}")
 
 
 # define mini batch data loader
@@ -115,20 +127,23 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.heads = nn.ModuleList(
-            Head(params.embd_dims, params.block_size, params.head_size)
+            Head(
+                params.embd_dims, params.block_size, params.head_size, params.drop_rate
+            )
             for _ in range(params.n_heads)
         )
         # ? after concat, each head's output sits in its own isolated part of the embd dims.
         # ? The projection layer lets different heads' outputs interact and combine their
         # ? learned representations through matrix multiplication.
         self.proj = apply_module(nn.Linear(params.embd_dims, params.embd_dims))
+        self.dropout = nn.Dropout(params.drop_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # each head output: (B, T, head_size)
         # concat result: (B,T,embd_dims) as head_size = embd_dims/n_heads
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         # (B,T,C) @ (B,C,C) + (B,C,C) --> (B,T,C)
-        out = self.proj(out)
+        out = self.dropout(self.proj(out))
         return out
 
 
@@ -137,7 +152,9 @@ class Head(nn.Module):
     One head of self-attention.
     """
 
-    def __init__(self, embd_dims: int, block_size: int, head_size: int) -> None:
+    def __init__(
+        self, embd_dims: int, block_size: int, head_size: int, drop_rate: float
+    ) -> None:
         super().__init__()
         self.head_size = head_size
 
@@ -149,6 +166,7 @@ class Head(nn.Module):
         self.register_buffer(
             "tril_mask", torch.tril(torch.ones(block_size, block_size))
         )
+        self.dropout = nn.Dropout(drop_rate)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
@@ -159,6 +177,8 @@ class Head(nn.Module):
         # slice mask to match actual sequence length T
         masked_w = scaled_w.masked_fill(self.tril_mask[:T, :T] == 0, float("-inf"))
         att_mat = masked_w.softmax(-1)
+        # apply dropout regularization
+        att_mat = self.dropout(att_mat)
         # (B,T,T) @ (B,T,head_size) --> (B,T,head_size)
         weighted_att_mat = att_mat @ v
         return weighted_att_mat
@@ -171,7 +191,7 @@ class FeedForward(nn.Module):
     This module applies a linear transformation, followed by RELU non-linearity.
     """
 
-    def __init__(self, embd_dims: int, layer_scale: int) -> None:
+    def __init__(self, embd_dims: int, layer_scale: int, drop_rate: float) -> None:
         super().__init__()
         self.net = nn.Sequential(
             # ? expand hidden layer size to givethe network a larger "workspace"
@@ -181,6 +201,9 @@ class FeedForward(nn.Module):
             # ? projection layer forces the network to compress that information
             # ? into the most useful features.
             nn.Linear(layer_scale * embd_dims, embd_dims),
+            # ? randomly zeroing individual elements throughout the (B, T, C) tensor
+            # ? means that each token has some of its features temporarily removed
+            nn.Dropout(drop_rate),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -191,7 +214,9 @@ class Block(nn.Module):
     def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.sa = MultiHeadAttention(params)
-        self.ffn = FeedForward(params.embd_dims, params.ffn_layer_scale)
+        self.ffn = FeedForward(
+            params.embd_dims, params.ffn_layer_scale, params.drop_rate
+        )
         self.ln1 = nn.LayerNorm(params.embd_dims)
         self.ln2 = nn.LayerNorm(params.embd_dims)
 
@@ -203,7 +228,7 @@ class Block(nn.Module):
         return x
 
 
-class BigramModel(nn.Module):
+class LiminalGPT(nn.Module):
     def __init__(self, params: ModelParams) -> None:
         super().__init__()
         self.params = params
@@ -212,13 +237,8 @@ class BigramModel(nn.Module):
         self.position_embd_dims_table = nn.Embedding(
             params.block_size, params.embd_dims
         )
-        self.blocks = nn.Sequential(
-            Block(params),
-            Block(params),
-            Block(params),
-            Block(params),
-            nn.LayerNorm(params.embd_dims),
-        )
+        self.blocks = nn.Sequential(*[Block(params) for _ in range(params.n_layers)])
+        self.final_ln = nn.LayerNorm(params.embd_dims)
         # lm_head is the final projection layer that converts model's
         # internal representations back into predictions over vocabulary
         self.lm_head = apply_module(nn.Linear(params.embd_dims, params.vocab_size))
@@ -236,6 +256,8 @@ class BigramModel(nn.Module):
         input_embds = tok_embds + pos_embds  # (B, T, embd_dims)
 
         acts = self.blocks(input_embds)  # (B,T,embd_dims)
+        # normalize feature vectors per token
+        acts = self.final_ln(acts)
         # (B,T,embd_dims) @ (embd_dims, vocab_size) --> (B,T,vocab_size)
         logits = self.lm_head(acts)
 
@@ -288,11 +310,16 @@ def main():
     lim = int(0.9 * len(text))
     toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
 
-    params = ModelParams(vocab_size, embd_dims, n_heads, block_size, ffn_layer_scale)
+    params = ModelParams(
+        vocab_size, embd_dims, n_heads, block_size, ffn_layer_scale, drop_rate, n_layers
+    )
 
-    model = BigramModel(params)
+    model = LiminalGPT(params)
     # move model parameters to gpu
     model = model.to(device)
+
+    # print model's parameter size
+    print(sum(p.numel() for p in model.parameters()) / 1e6, "M parameters")
 
     # gradient optimizer for updating hyperparameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -323,7 +350,8 @@ def main():
     # text generation
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
     context = model.generate(context, 500)
-    print("Generated text:", _decode(context, tok2char))
+    txt = _decode(context, tok2char)
+    _save_generated_text(txt, "./output.txt")
 
 
 if __name__ == "__main__":
@@ -338,4 +366,5 @@ if __name__ == "__main__":
     # val loss with 5000 iters,32 embds,4 heads, with ffn: 2.1735
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks: 2.3096 (net too deep; need residual connections)
     # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale: 1.9157
-    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln: 1.9051
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln: 1.8945
+    # val loss with 5000 iters,32 embds,4 heads, 4 blocks, skip conns + 4-ffn_scale, 2-ln, dropouts: 1.8919
