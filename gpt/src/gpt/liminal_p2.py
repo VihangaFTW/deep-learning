@@ -18,7 +18,7 @@ Usage:
 """
 
 from dataclasses import dataclass
-from enum import StrEnum 
+from enum import StrEnum
 from typing import Final
 import torch
 import torch.nn as nn
