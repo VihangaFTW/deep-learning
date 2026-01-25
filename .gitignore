@@ -78,5 +78,6 @@ Thumbs.db
 # python linter configs
 pyrightconfig.json
 
-# training data and generated outputs
-*.txt
+
+# merge files
+*.model
