@@ -52,6 +52,10 @@ A character-level GPT implementation using decoder-only transformer architecture
 
 See the [gpt README](./gpt/README.md) for detailed documentation.
 
+### [dev_bytetok](./dev_bytetok/)
+
+This is a development/experimental directory. The full published ByteTok package is available at [github.com/VihangaFTW/bytetok](https://github.com/VihangaFTW/bytetok).
+
 ## Requirements
 
 - Python >= 3.14
