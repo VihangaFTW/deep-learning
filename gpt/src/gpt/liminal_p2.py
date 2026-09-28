@@ -1,7 +1,8 @@
 """
-LiminalGPT: A decoder-only transformer for character-level language modeling.
+LiminalGPT: A decoder-only transformer for BPE-tokenized language modeling.
 
-This module implements a GPT-style language model trained on character-level text data.
+This module implements a GPT-style language model trained on text tokenized with a
+byte-level BPE tokenizer from ByteTok.
 The architecture includes:
 - Token and positional embeddings.
 - Multi-head self-attention with causal masking.
@@ -19,7 +20,9 @@ Usage:
 
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Final
+import bytetok as btok
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,6 +32,9 @@ from type_checker import apply_module
 
 SEED: Final[int] = 3252
 TXT_PATH: Final[str] = "./book.txt"
+TOK_PREFIX: Final[str] = "./liminal_tok" 
+TOK_PATTERN: Final[btok.factory.Pattern] = "gpt4o"
+TOK_VOCAB_SIZE: Final[int] = 2048
 
 
 class BatchType(StrEnum):
@@ -109,34 +115,55 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 torch.manual_seed(SEED)
 
 
-# define token encoder & decoder
-def _encode(s: str, char2tok: dict[str, int]) -> torch.Tensor:
+def _load_tokenizer(text: str) -> btok.Tokenizer:
+    """
+    Load a saved ByteTok tokenizer, or train and save a new one on the corpus.
+
+    Args:
+        text: Training corpus used when no saved tokenizer exists.
+
+    Returns:
+        A trained byte-level BPE tokenizer.
+    """
+    model_path = Path(TOK_PREFIX).with_suffix(".model")
+    if model_path.exists():
+        return btok.from_pretrained(str(model_path))
+
+    tokenizer = btok.get_tokenizer(TOK_PATTERN)
+    tokenizer.train(text, TOK_VOCAB_SIZE, verbose=True)
+    tokenizer.save(TOK_PREFIX)
+    return tokenizer
+
+
+def _encode(s: str, tokenizer: btok.Tokenizer) -> torch.Tensor:
     """
     Encode a string into a tensor of token indices.
 
     Args:
         s: Input string to encode.
-        char2tok: Dictionary mapping characters to token indices.
+        tokenizer: Trained ByteTok tokenizer.
 
     Returns:
         1D tensor of token indices with dtype torch.long.
     """
-    return torch.tensor([char2tok[char] for char in s], dtype=torch.long)
+    return torch.tensor(tokenizer.encode(s), dtype=torch.long)
 
 
-def _decode(sequences: torch.Tensor, tok2char: dict[int, str]) -> str:
+def _decode(sequences: torch.Tensor, tokenizer: btok.Tokenizer) -> str:
     """
     Decode a tensor of token indices back into a string.
 
     Args:
-        sequences: Tensor of token indices, typically of shape (B, T) where B is batch size
+        sequences: Tensor of token indices of shape (B, T) where B is batch size
                    and T is sequence length.
-        tok2char: Dictionary mapping token indices to characters.
+        tokenizer: Trained ByteTok tokenizer.
 
     Returns:
-        Decoded string formed by concatenating all characters corresponding to token indices.
+        Decoded string formed by concatenating the decoded text of each sequence.
     """
-    return "".join(tok2char[int(tok.item())] for seq in sequences for tok in seq)
+    return "".join(
+        tokenizer.decode(seq.tolist(), errors="replace") for seq in sequences
+    )
 
 
 def _save_generated_text(text: str, filepath: str) -> None:
@@ -437,7 +464,7 @@ class Block(nn.Module):
 
 class LiminalGPT(nn.Module):
     """
-    A GPT-style language model for character-level text generation.
+    A GPT-style language model for BPE-tokenized text generation.
 
     This model implements a decoder-only transformer architecture with:
     - Token and positional embeddings.
@@ -574,18 +601,12 @@ def main():
     with open(TXT_PATH, "r", encoding="utf-8") as bk:
         text = bk.read()
 
-    chars = sorted(set(text))
-    vocab_size = len(chars)
-
-    # * 1 token =  1 character
-
-    # define character <-> token mappings
-    char2tok = {char: i for i, char in enumerate(chars)}
-    tok2char = {i: char for char, i in char2tok.items()}
+    tokenizer = _load_tokenizer(text)
+    vocab_size = tokenizer.vocab_size()
 
     # separate dataset into batches
     lim = int(0.9 * len(text))
-    toks = TokenStore(_encode(text[:lim], char2tok), _encode(text[lim:], char2tok))
+    toks = TokenStore(_encode(text[:lim], tokenizer), _encode(text[lim:], tokenizer))
 
     params = ModelParams(
         vocab_size, embd_dims, n_heads, block_size, ffn_layer_scale, drop_rate, n_layers
@@ -627,7 +648,7 @@ def main():
     # text generation
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
     context = model.generate(context, 500)
-    txt = _decode(context, tok2char)
+    txt = _decode(context, tokenizer)
     _save_generated_text(txt, "./output.txt")
 
 

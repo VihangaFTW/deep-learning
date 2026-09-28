@@ -1,6 +1,6 @@
 # LiminalGPT
 
-Character-level GPT implementation using decoder-only transformer architecture.
+GPT implementation with byte-level BPE tokenization (via [ByteTok](https://github.com/VihangaFTW/bytetok)) using decoder-only transformer architecture.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ Character-level GPT implementation using decoder-only transformer architecture.
 Current configuration in `liminal_p2.py`:
 
 ```
-vocab_size: dataset-dependent
+vocab_size: 2048 (ByteTok BPE, gpt4o pattern)
 embd_dims: 384
 n_heads: 6
 block_size: 256 (context window)
